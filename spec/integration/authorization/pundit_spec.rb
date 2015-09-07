@@ -37,7 +37,7 @@ class ApplicationPolicy
       when :dashboard
         user.roles.include? :admin
       when :index
-        user.roles.include? :admin
+       false
       when :show
         user.roles.include? :admin
       when :new
@@ -45,7 +45,7 @@ class ApplicationPolicy
       when :edit
         user.roles.include? :admin
       when :destroy
-        user.roles.include? :admin
+        false
       when :export
         user.roles.include? :admin
       when :history
@@ -59,7 +59,33 @@ class ApplicationPolicy
 
 end
 
-describe ApplicationPolicy do
+class PlayerPolicy < ApplicationPolicy
+
+  def rails_admin?(action)
+    case action
+      when :index
+        user.roles.include? :admin
+      when :show
+          true
+      when :new
+        (user.roles.include? :create_player or user.roles.include? :admin or user.roles.include? :manage_player)
+      when :edit
+        (user.roles.include? :manage_player)
+      when :destroy
+        (user.roles.include? :manage_player)
+      when :export
+        user.roles.include? :admin
+      when :history
+        user.roles.include? :admin
+      when :show_in_app
+        (user.roles.include? :admin or user.roles.include? :manage_player)
+      else
+        raise ::Pundit::NotDefinedError, 'unable to find policy #{action} for #{record}.'
+    end
+  end
+end
+
+describe PlayerPolicy do
 
   before do
     RailsAdmin.config do |c|
@@ -72,7 +98,7 @@ describe ApplicationPolicy do
     login_as @user
   end
 
-  subject { ApplicationPolicy.new(user, player) }
+  subject { PlayerPolicy.new(user, player) }
 
   let(:player) { @player_model }
 
@@ -132,9 +158,32 @@ describe 'RailsAdmin Pundit Authorization', type: :request do
       end
     end
 
+    describe 'with read player role' do
+      before do
+        @user.update_attributes(roles: [:admin, :read_player])
+      end
+
+      it 'GET /admin should show Player but not League' do
+        visit dashboard_path
+        is_expected.to have_content('Player')
+        is_expected.not_to have_content('League')
+        is_expected.not_to have_content('Add new')
+      end
+
+      it 'GET /admin/team should raise Pundit::NotAuthorizedError' do
+        expect { visit index_path(model_name: 'team') }.to raise_error(Pundit::NotAuthorizedError)
+      end
+
+      it 'GET /admin/player/1/edit should raise access denied' do
+        @player = FactoryGirl.create :player
+        expect { visit edit_path(model_name: 'player', id: @player.id) }.to raise_error(Pundit::NotAuthorizedError)
+      end
+
+    end
+
     describe 'with admin role' do
       before do
-        @user.update_attributes(roles: [:admin])
+        @user.update_attributes(roles: [:admin, :manage_player])
       end
 
       it 'GET /admin should show Player but not League' do
@@ -145,7 +194,7 @@ describe 'RailsAdmin Pundit Authorization', type: :request do
       it 'GET /admin/player/new should render and create record upon submission' do
         visit new_path(model_name: 'player')
 
-        is_expected.not_to have_content('Save and edit')
+        is_expected.to have_content('Save and edit')
         is_expected.not_to have_content('Delete')
 
         is_expected.to have_content('Save and add another')
@@ -159,10 +208,31 @@ describe 'RailsAdmin Pundit Authorization', type: :request do
         expect(@player.name).to eq('Jackie Robinson')
         expect(@player.number).to eq(42)
         expect(@player.position).to eq('Second baseman')
-        expect(@player).to be_suspended # suspended is inherited behavior based on permission
       end
 
     end
+
+    describe 'with all roles' do
+      it 'shows links to all actions' do
+        @user.update_attributes(roles: [:admin, :manage_player])
+        @player = FactoryGirl.create :player
+
+        visit index_path(model_name: 'player')
+        is_expected.to have_css('.show_member_link')
+        is_expected.to have_css('.edit_member_link')
+        is_expected.to have_css('.delete_member_link')
+        is_expected.to have_css('.history_show_member_link')
+        is_expected.to have_css('.show_in_app_member_link')
+
+        visit show_path(model_name: 'player', id: @player.id)
+        is_expected.to have_content('Show')
+        is_expected.to have_content('Edit')
+        is_expected.to have_content('Delete')
+        is_expected.to have_content('History')
+        is_expected.to have_content('Show in app')
+      end
+    end
+
 
 end
 
