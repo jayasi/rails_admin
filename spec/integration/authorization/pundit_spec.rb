@@ -29,6 +29,8 @@ class ApplicationPolicy
       user.roles.include? :admin
     when :show_in_app
       user.roles.include? :admin
+      when :showit
+        user.roles.include? :admin
     else
       fail ::Pundit::NotDefinedError.new("unable to find policy #{action} for #{record}.")
     end
@@ -54,6 +56,8 @@ class PlayerPolicy < ApplicationPolicy
       user.roles.include? :admin
     when :show_in_app
       (user.roles.include?(:admin) || user.roles.include?(:manage_player))
+      when :showit
+        true
     else
       fail ::Pundit::NotDefinedError.new("unable to find policy #{action} for #{record}.")
     end
@@ -70,6 +74,11 @@ describe 'RailsAdmin Pundit Authorization', type: :request do
       c.authorize_with(:pundit)
       c.authenticate_with { warden.authenticate! scope: :user }
       c.current_user_method(&:current_user)
+    end
+    RailsAdmin.config.actions do
+      show do
+        authorization_key :showit
+      end
     end
     @player_model = RailsAdmin::AbstractModel.new(Player)
     @user = FactoryGirl.create :user
